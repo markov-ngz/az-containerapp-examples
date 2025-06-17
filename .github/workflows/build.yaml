@@ -1,0 +1,70 @@
+name: Build 
+
+on:
+  workflow_call:
+    inputs:
+      application_working_directory:
+        description: 'Application working directory where the target Dockerfile needs to be deployed from'
+        required: true
+        type: string
+      image_registry_name:
+        description: 'registry url'
+        required: true
+        type: string
+      image_name:
+        description: 'Name of the image to push to the registry'
+        required: true
+        type: string
+      image_tag:
+        description: 'Tag of the image'
+        required: true
+        type: string
+    outputs:
+      image_fullname:
+        description: image fqdn
+        value:  ${{ jobs.build.outputs.image_fullname }}
+
+jobs: 
+  build:
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      image_fullname: ${{ steps.image_fullname.outputs.image_fullname }}
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Export full image name # with repository 
+        run: echo "IMAGE_NAME=${{ inputs.image_registry_name }}.azurecr.io/${{ inputs.image_name }}:${{ inputs.image_tag }}" >> $GITHUB_ENV
+          
+      - name: Print image name # to debug 
+        run: echo $IMAGE_NAME
+
+      - name: Login to registry
+        run: az acr login --name ${{ inputs.image_registry_name }}
+      
+      - name: Build docker image
+        working-directory: ${{ inputs.application_working_directory}}
+        run: |
+          docker build -t $IMAGE_NAME . 
+
+      - name: Push Docker image to Artifact Registry
+        run: |
+          docker push $IMAGE_NAME
+
+      - name: Set output
+        id: image_fullname
+        run: |
+          echo "image_fullname=$IMAGE_NAME" >> "$GITHUB_OUTPUT"
+          
